@@ -1,0 +1,196 @@
+# Given: x (age), nNx (population), nDx (deaths), nax (average years lived in interval by those who die)
+
+construct_life_table <- function(x, nNx, nDx, nax) {
+  
+  # Input validation
+  if (length(x) != length(nNx) || length(x) != length(nDx) || length(x) != length(nax)) {
+    stop("All input vectors must have the same length")
+  }
+  
+  n <- length(x)
+  
+  # Calculate age intervals (n)
+  age_intervals <- c(diff(x), NA)  # Last interval is open-ended
+  age_intervals[n] <- Inf  # Last age group is open-ended
+  
+  # Initialize life table data frame
+  life_table <- data.frame(
+    x = x,                    # Age at beginning of interval
+    n = age_intervals,        # Length of age interval
+    nNx = nNx,               # Population in age interval
+    nDx = nDx,               # Deaths in age interval
+    nax = nax,               # Average years lived in interval by those who die
+    nmx = numeric(n),        # Age-specific death rate
+    nqx = numeric(n),        # Probability of dying in interval
+    npx = numeric(n),        # Probability of surviving interval
+    lx = numeric(n),         # Number alive at beginning of interval
+    ndx = numeric(n),        # Number dying in interval
+    nLx = numeric(n),        # Person-years lived in interval
+    Tx = numeric(n),         # Total person-years lived from age x onwards
+    ex = numeric(n)          # Life expectancy at age x
+  )
+  
+  # Calculate age-specific death rates (nmx)
+  life_table$nmx <- ifelse(nNx > 0, nDx / nNx, 0)
+  
+  # Calculate probability of dying (nqx)
+  for (i in 1:n) {
+    if (i == n) {
+      # Last age group (open interval)
+      life_table$nqx[i] <- 1.0
+    } else {
+      # Standard calculation
+      life_table$nqx[i] <- (age_intervals[i] * life_table$nmx[i]) / 
+        (1 + (age_intervals[i] - nax[i]) * life_table$nmx[i])
+    }
+  }
+  
+  # Ensure nqx doesn't exceed 1
+  life_table$nqx <- pmin(life_table$nqx, 1.0)
+  
+  # Calculate probability of surviving (npx)
+  life_table$npx <- 1 - life_table$nqx
+  
+  # Calculate lx (survivorship function)
+  # Start with radix of 100,000
+  radix <- 100000
+  life_table$lx[1] <- radix
+  
+  for (i in 2:n) {
+    life_table$lx[i] <- life_table$lx[i-1] * life_table$npx[i-1]
+  }
+  
+  # Calculate ndx (deaths in life table population)
+  life_table$ndx <- life_table$lx * life_table$nqx
+  
+  # Calculate nLx (person-years lived)
+  for (i in 1:n) {
+    if (i == n) {
+      # Last age group (open interval)
+      life_table$nLx[i] <- life_table$lx[i] / life_table$nmx[i]
+    } else {
+      # Standard calculation
+      life_table$nLx[i] <- age_intervals[i] * life_table$lx[i+1] + 
+        nax[i] * life_table$ndx[i]
+    }
+  }
+  
+  # Calculate Tx (total person-years from age x onwards)
+  life_table$Tx[n] <- life_table$nLx[n]
+  for (i in (n-1):1) {
+    life_table$Tx[i] <- life_table$Tx[i+1] + life_table$nLx[i]
+  }
+  
+  # Calculate ex (life expectancy)
+  life_table$ex <- life_table$Tx / life_table$lx
+  
+  return(life_table)
+}
+
+# Example usage with sample data
+# Sample data (replace with your actual data)
+sample_data <- data.frame(
+  x = c(0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85),
+  nNx = c(379985, 1559722, 1896295, 2160190, 2179837, 2159556, 2106750, 2147845, 2165387, 1516952, 1498630, 1552746, 1476770, 1350479, 722430, 842589, 636848, 372059, 175169),
+  nDx = c(3741, 770, 532, 673, 2138, 3432, 3291, 3657, 4956, 5269, 8654, 14490, 20831, 26805, 20233, 38315, 46903, 44443, 37759),
+  nax = c(0.087, 1.5, 2.5, 2.966, 2.769, 2.574, 2.512, 2.586, 2.657, 2.697, 2.695, 2.663, 2.625, 2.601, 2.615, 2.598, 2.538, 2.466, 4.639)
+)
+
+# Construct the life table
+life_table_result <- construct_life_table(
+  x = sample_data$x,
+  nNx = sample_data$nNx,
+  nDx = sample_data$nDx,
+  nax = sample_data$nax
+)
+
+# Display the results
+print(life_table_result)
+
+# Optional: Round numerical columns for better display
+life_table_rounded <- life_table_result
+numeric_cols <- c("nmx", "nqx", "npx", "lx", "ndx", "nLx", "Tx", "ex")
+life_table_rounded[numeric_cols] <- lapply(life_table_rounded[numeric_cols], function(x) round(x, 4))
+
+print("Life Table (rounded):")
+print(life_table_rounded)
+
+# Create a summary plot of key life table functions
+library(scales)
+library(ggplot2)
+
+# Plot 1: Survivorship curve (lx)
+plot_lx <- ggplot(life_table_result, aes(x = x, y = lx)) +
+  geom_line(color = "blue", size = 1.2) +
+  geom_point(color = "darkblue", size = 2) +
+  labs(title = "Survivorship Curve (lx)",
+       subtitle = "Number of people survivingn to exact age x",
+       x = "Age (years)", 
+       y = "Number Surviving (lx)"
+  ) +
+  scale_y_continuous(
+    labels = comma_format(),  # Add commas to numbers
+    limits = c(0, max(life_table_result$lx) * 1.05 )
+  ) +
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(size = 14, face  = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.grid.minor = element_blank ()
+  )
+
+plot_lx
+
+# 2. DEATHS IN LIFE TABLE POPULATION (ndx)
+# Shows number dying in each age interval
+plot_ndx <- ggplot(life_table_result, aes(x = x, y = ndx)) +
+  geom_col(fill = "red", alpha = 0.7, width = 0.8) +  # Bar chart
+  geom_line(color = "darkred", size = 1) +  # Add line for trend
+  geom_point(color = "darkred", size = 2) +
+  labs(
+    title = "Deaths in Life Table Population (ndx)",
+    subtitle = "Number dying in each age interval",
+    x = "Age (years)",
+    y = "Number of Deaths (ndx)"
+  ) +
+  scale_y_continuous(
+    labels = comma_format(),
+    limits = c(0, max(life_table_result$ndx) * 1.05)
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  )
+
+plot_ndx
+
+
+# 3. AGE-SPECIFIC DEATH RATE (nmx)
+# Shows death rate per person per year
+plot_nmx <- ggplot(life_table_result, aes(x = x, y =nmx)) +
+  geom_line(color = "green", size = 1.2) +
+  geom_point(color = "darkgreen", size = 2) +
+  labs(
+    title = "Age-Specific Death Rate (nmx)",
+    subtitle = "Deaths per person per year in each age group",
+    x = "Age (years)",
+    y = "Death Rate (nmx)"
+  ) +
+  scale_y_continuous(
+    labels = number_format(accuracy = 0.001),  # Show 3 decimal places
+    trans = "log10"  # Use log scale for better visualization
+  ) +
+  annotation_logticks(sides = "l") +  # Add log scale tick marks
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  )
+
+plot_nmx
