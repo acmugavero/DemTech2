@@ -1,0 +1,77 @@
+
+# enter 2005 USA data for both sexes
+qx_2005 <- data.frame(
+  Age = 16:31,
+  qx = c(
+    0.00048988, 0.000649789,0.000819664, 0.000909586, 0.000909586, 0.0009995, 0.0009995, 0.0009995, 0.00097952, 0.00098951, 0.0009995, 0.00100949, 0.00100949, 0.00098951, 0.00102947,0.001089406
+  )  
+)
+
+print (qx_2005)
+
+
+#  Define accident probability function 
+p_acc <- function(age) {
+  0.062 - 0.000053 * (age^2)
+}
+
+qx_2005$p_acc <- p_acc(qx_2005$Age)
+
+# Construct extended life table 
+radix <- 85000
+ages <- 16:31
+
+# Create storage
+life_table <- data.frame(
+  Age = ages,
+  lx = NA,   # survivors alive & accident-free at beginning of age
+  dx = NA,   # deaths without accident at this age
+  ax = NA,   # accidents (non-fatal) at this age
+  lnext = NA # survivors alive & accident-free to next age
+)
+
+# Initialize
+life_table$lx[1] <- radix
+
+# Loop through ages
+for (i in 1:length(ages)) {
+  age <- ages[i]
+  lx <- life_table$lx[i]
+  q <- qx_2005$qx[qx_2005$Age == age]
+  p <- qx_2005$p_acc[qx_2005$Age == age]
+  
+  # Death without accident
+  dx <- lx * q * (1 - p)
+  
+  # Accident (non-fatal, exit from no-accident group)
+  ax <- lx * (1 - q) * p
+  
+  # Survivors to next age (alive + no accident yet)
+  lnext <- lx * (1 - q) * (1 - p)
+  
+  # Store
+  life_table$dx[i] <- dx
+  life_table$ax[i] <- ax
+  life_table$lnext[i] <- lnext
+  
+  # Carry survivors forward
+  if (i < length(ages)) {
+    life_table$lx[i+1] <- lnext
+  }
+}
+
+# Survivors at exact age 31
+l31 <- life_table$lx[life_table$Age == 31]
+
+# A. Proportion living to 31 without accident
+A <- l31 / radix
+
+# B. Among those who live to age 25 accident-free,
+# probability of accident by 31
+l25 <- life_table$lx[life_table$Age == 25]
+acc_25_30 <- sum(life_table$ax[life_table$Age %in% 25:30])  # include age 31
+B <- acc_25_30 / l25
+
+# C. Probability of dying without accident by 31
+acc_16_30 <- sum(life_table$dx[life_table$Age %in% 16:30])
+C <- acc_16_30/radix
